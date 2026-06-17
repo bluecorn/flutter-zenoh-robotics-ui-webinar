@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220">
+  <!-- DECK variant of v9 for DARK navy frames: two LIGHT Hopi hues so all 8 kernels read.
+       Cardinals (top=2pi,right,bottom,left)=#5EA4DE; diagonals=#AED2F0. Canonical = bluecorn-octagram.svg -->
+  <path d="M110,30 C123,31 128,41 128,53 C128,70 118,86 110,91 C102,86 92,70 92,53 C92,41 97,31 110,30 Z" fill="#5EA4DE" transform="rotate(0 110 110)"/>
+  <path d="M110,30 C123,31 128,41 128,53 C128,70 118,86 110,91 C102,86 92,70 92,53 C92,41 97,31 110,30 Z" fill="#AED2F0" transform="rotate(45 110 110)"/>
+  <path d="M110,30 C123,31 128,41 128,53 C128,70 118,86 110,91 C102,86 92,70 92,53 C92,41 97,31 110,30 Z" fill="#5EA4DE" transform="rotate(90 110 110)"/>
+  <path d="M110,30 C123,31 128,41 128,53 C128,70 118,86 110,91 C102,86 92,70 92,53 C92,41 97,31 110,30 Z" fill="#AED2F0" transform="rotate(135 110 110)"/>
+  <path d="M110,30 C123,31 128,41 128,53 C128,70 118,86 110,91 C102,86 92,70 92,53 C92,41 97,31 110,30 Z" fill="#5EA4DE" transform="rotate(180 110 110)"/>
+  <path d="M110,30 C123,31 128,41 128,53 C128,70 118,86 110,91 C102,86 92,70 92,53 C92,41 97,31 110,30 Z" fill="#AED2F0" transform="rotate(225 110 110)"/>
+  <path d="M110,30 C123,31 128,41 128,53 C128,70 118,86 110,91 C102,86 92,70 92,53 C92,41 97,31 110,30 Z" fill="#5EA4DE" transform="rotate(270 110 110)"/>
+  <path d="M110,30 C123,31 128,41 128,53 C128,70 118,86 110,91 C102,86 92,70 92,53 C92,41 97,31 110,30 Z" fill="#AED2F0" transform="rotate(315 110 110)"/>
+  <circle cx="110" cy="110" r="11" fill="#5EA4DE"/>
+</svg>

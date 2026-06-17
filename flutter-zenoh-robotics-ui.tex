@@ -1,0 +1,684 @@
+% !TEX program = xelatex
+% EF IoT Webinar (June 17, 2026) — Building a UI for Robotics Using Flutter and Zenoh
+% Hugo Alberto Garcia — Bluecorn.   Theme: bluecorn (theme/).   Build: latexmk -xelatex
+%
+% Thesis:
+%   Zenoh lets an app interact with a robot — through ROS — as a PEER, eliminating
+%   the broker/gateway and the client/server relationship every other approach
+%   forces between the app and the robot. The server keeps its place (cloud
+%   data-mining, management, aggregation) — it just isn't the ONLY door; the UI on
+%   the same fabric has real merits. Proven on robots; open to IoT and embedded.
+\documentclass[9pt]{beamer}
+
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric}
+\usepackage{booktabs}
+
+\makeatletter\def\input@path{{theme/}}\makeatother
+\usetheme{bluecorn}
+
+\title{Building a UI for Robotics Using Flutter and Zenoh}
+\subtitle{EF IoT Webinar}
+\author{Hugo Alberto Garcia - Bluecorn}
+\date{June 17, 2026}
+
+\begin{document}
+
+% ------------------------------------------------------------------
+\bluecorntitleframe
+
+% ===================== SECTION DIVIDER 1: PROBLEM ===================
+\section{Problem Statement}
+\bluecornsection{Problem Statement}{The data already flows --- so why does the UI still need a server?}
+
+% ============================ PROBLEM =============================
+\begin{frame}{The UI Is Always Behind a Gateway}
+  Every IoT fleet, edge deployment, or robot already shares a \textbf{data fabric} --- devices exchange telemetry \emph{and} commands directly, with delivery and QoS guarantees, over MQTT, DDS, Zenoh, or similar.
+
+  \vspace{0.3em}
+  \textbf{Then someone wants a UI --- and a UI runs both ways:}
+  \begin{itemize}
+    \item \textbf{Observe} --- read live state: joint angles, a sensor fleet's readings, a camera feed
+    \item \textbf{Act} --- write back: drive the arm to a pose or \textbf{stop} it; recalibrate a sensor; set a valve or thermostat; clear an alarm
+  \end{itemize}
+
+  \vspace{0.25em}
+  Yet the dashboard almost never \emph{joins} that fabric --- it reaches in through a \textbf{gateway} on \textbf{both} legs (a WebSocket bridge, \texttt{rosbridge}, a REST shim): a \emph{whole extra tier}, and a \textbf{client/server chokepoint} that flattens QoS --- telemetry \emph{and} commands both go second-hand, right where control needs them most.
+
+  \vspace{0.35em}
+  \begin{center}
+    {\large\textbf{The data already flows --- both ways --- so why does the UI still need a server?}}
+  \end{center}
+\end{frame}
+
+% ===================== HONEST FRAMING: NOT ANTI-SERVER ============
+% Placed BEFORE the thesis (Hugo, 2026-06-13): disarm the "are you anti-server?"
+% objection the Problem slide provokes, so the bold claim lands clean.
+\begin{frame}{We're Not Anti-Server}
+  In IoT this is the reflex: many protocols converge and get \textbf{processed} by a server tier. And the server \textbf{earns its place} ---
+
+  \vspace{0.3em}
+  \begin{itemize}
+    \item \textbf{Cloud services} --- data-mining, analytics, long-term storage
+    \item \textbf{Management} --- fleet orchestration, identity, access control
+    \item \textbf{Aggregation} --- many protocols and many sites funnelled into one
+  \end{itemize}
+
+  \vspace{0.5em}
+  \textbf{We are not advocating a serverless architecture.} We're advocating that the server is \textbf{not the only solution} --- and that letting the \textbf{UI, and the application behind it, live on the same fabric} as a first-class peer has real merits:
+
+  \vspace{0.4em}
+  \begin{center}
+    {\small no extra tier to build and secure \quad$\cdot$\quad no QoS flattened on the way through \quad$\cdot$\quad direct two-way interaction}
+  \end{center}
+\end{frame}
+
+% ============ SETUP: SO WE WANT THE UI ON THE FABRIC (IoT) ========
+% Reframed to IoT (Hugo, 2026-06-13): the familiar ground where the UI-as-peer
+% pattern already works TODAY -> sets up the robotics clincher on the next slide.
+\begin{frame}{In IoT, the UI Joins the Fabric}
+  That IoT fabric is \textbf{already peers} --- sensors, edge services, even \texttt{zenoh-pico} microcontrollers. To put the \textbf{UI} on it as \emph{one more peer} --- no bridge tier bolted on --- you need a protocol that speaks the links IoT actually runs on: \textbf{TCP, UDP, QUIC, TLS, WebSocket}, even \textbf{serial} to the most constrained devices --- \mbox{peer-to-peer} \emph{and} brokered, with QoS end to end.
+
+  \vspace{0.7em}
+  \begin{center}
+    {\Large That protocol is \textbf{Zenoh} --- and in IoT, this works \textbf{today}.}
+  \end{center}
+\end{frame}
+
+% =================== AGENDA / PLAN: WHERE WE'RE HEADED ===========
+% Replaced the standalone "Now, the Same in Robotics" clincher (Hugo, 2026-06-13):
+% a mid-deck roadmap that states the theme + signposts the grounding concepts, so
+% the foundations (ROS / Zenoh / rmw_zenoh / topology) read as an intentional path
+% rather than a deceleration after a premature payoff.
+% NOTE: the clincher's PAYLOAD (the locked thesis claim + "newly possible / rmw_zenoh"
+% hook) must relocate to "Zenoh Is the Robot's Middleware" (the unlock) and the proof
+% --- otherwise the body loses the thesis statement. The DDS-bridge speaker note below
+% rides here for now (Q&A backup); move it to slide 8 when that's reworked.
+\begin{frame}{First, the Groundwork}
+  \textbf{The theme:} a robotics UI that's a \textbf{first-class peer on the robot's own fabric} --- no gateway, no bridge tier. We just saw the pattern work in IoT; \textbf{robotics} is the part you \emph{couldn't} do until recently.
+
+  \vspace{0.5em}
+  To show \emph{how} --- and prove it on a real arm --- we need a little shared vocabulary first:
+  \begin{itemize}
+    \item \textbf{What ROS is} --- the framework every robot runs
+    \item \textbf{What Zenoh is} --- the data-centric protocol
+    \item \textbf{How Zenoh becomes a robot's middleware} --- and what it unlocks
+  \end{itemize}
+
+  \vspace{0.4em}
+  Then the payoff: the \textbf{Dart binding}, the \textbf{app}, and a \textbf{real PincherX-100} moving over Zenoh.
+\end{frame}
+
+% ================= SECTION DIVIDER 2: BACKGROUND ====================
+\section{Background: ROS and Zenoh}
+\bluecornsection{Background: ROS and Zenoh}{a little shared vocabulary --- nodes, paradigms, key expressions}
+
+% =========================== WHAT IS ROS ========================
+% Inserted from the full deck (Hugo, 2026-06-13): the clincher name-drops ROS 2;
+% the IoT audience needs the foundation. The original's closing RMW line
+% ("delegates to pluggable middleware --- historically DDS, now Zenoh") is DROPPED
+% here --- the clincher just delivered exactly that; the RMW/mechanism story stays
+% on the clincher + the "Zenoh Is the Robot's Middleware" slide.
+\begin{frame}{What Is ROS?}
+  \textbf{ROS --- the Robot Operating System.} Not actually an OS, but the \textbf{de-facto open-source framework} for building robot software (since 2007; \textbf{ROS\,2} is the production-grade rewrite).
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item \textbf{A robot's software is a graph of \emph{nodes}} --- small independent processes (a camera driver, a planner, a motor controller) running concurrently
+    \item \textbf{They talk over three patterns:} \textbf{topics} (pub/sub streams), \textbf{services} (request/reply), and \textbf{actions} (long-running goals)
+    \item \textbf{A vast ecosystem} --- perception, navigation, manipulation --- plus tooling: \texttt{RViz} (3D view), \texttt{rqt}, Gazebo (sim), the \texttt{ros2} CLI
+  \end{itemize}
+\end{frame}
+
+% ============ THE ROS COMPUTATION GRAPH (sourced: ROS docs / rqt_graph) =====
+% Inserted after "What Is ROS?" (Hugo, 2026-06-13): the topology picture of a ROS
+% system --- nodes wired by topics (pub/sub), services (request/reply), actions
+% (long-running goals). Follows the canonical ROS 2 computation-graph model
+% (docs.ros.org Concepts/Nodes; the view rqt_graph renders). Same 3 node examples
+% as the "What Is ROS?" slide (camera / planner / controller).
+\begin{frame}{The ROS Computation Graph}
+  Those nodes form a \textbf{graph}, wired by the three patterns --- \textbf{topics} (pub/sub streams), \textbf{services} (request/reply), and \textbf{actions} (long-running goals). This is the view \texttt{rqt\_graph} renders:
+
+  \vspace{0.7em}
+  \begin{center}
+    \begin{tikzpicture}[
+      ros/.style={draw, ellipse, minimum width=2.4cm, minimum height=0.9cm, font=\scriptsize, align=center, fill=m3LightSecondaryContainer},
+      topic/.style={->, thick, >=stealth, m3LightPrimary},
+      srv/.style={<->, thick, >=stealth, m3LightTertiary, dashed},
+      act/.style={->, line width=1.7pt, >=stealth, m3LightOnSurfaceVariant},
+      lab/.style={font=\tiny, text=m3LightOnSurfaceVariant}
+    ]
+      \node[ros] (cam)  at (-4.3,0) {\texttt{/camera}};
+      \node[ros] (plan) at (0,0)    {\texttt{/planner}};
+      \node[ros] (arm)  at (4.3,0)  {\texttt{/arm\_controller}};
+      \draw[topic] (cam) -- node[lab,above]{\textbf{topic} \texttt{/image}} (plan);
+      \draw[act]   (plan) -- node[lab,below]{\textbf{action} \texttt{/move\_to}} (arm);
+      \draw[srv]   (plan) to[bend left=42] node[lab,above]{\textbf{service} \texttt{/home}} (arm);
+    \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.5em}
+  \begin{center}{\small \textcolor{m3LightPrimary}{\textbf{Topics}} stream continuously (one $\to$ many) \quad$\cdot$\quad \textcolor{m3LightTertiary}{\textbf{services}} answer on demand \quad$\cdot$\quad \textbf{actions} run long goals with feedback}\end{center}
+
+  \vspace{0.2em}
+  {\scriptsize\itshape Model: the ROS 2 computation graph (\texttt{docs.ros.org}; the view \texttt{rqt\_graph} renders).}
+\end{frame}
+
+% ============ WHAT IS ZENOH (meshed with the full deck's "Three Paradigms") =
+\begin{frame}{What Is Zenoh? --- One Protocol, Three Paradigms}
+  \textbf{Eclipse Zenoh} (\textit{/zeno/} --- \emph{Zero Overhead Pub/Sub, Store/Query \& Compute}) is a \textbf{data-centric protocol}: one wire that unifies \textbf{data in motion} and \textbf{data at rest}. Open-source, written in Rust, with bindings in many languages.
+
+  \vspace{0.5em}
+  \textbf{Three communication paradigms over one data model:}
+  \begin{description}
+    \item[Pub/Sub] Publishers push; subscribers receive matching samples asynchronously (PUT \& DELETE) --- streams of telemetry and commands.
+    \item[Get/Queryable] Request/reply --- the reply carries a value \emph{or} an error. \textbf{REST-like verbs} (\texttt{put}\,/\,\texttt{get}\,/\,\texttt{delete}; a payload-carrying \texttt{get} $\approx$ POST), but \textbf{name-based} --- so a \texttt{get} is a \textbf{distributed query}, not a call to one host.
+    \item[Storage] Geo-distributed persistence --- router plugins back data to RocksDB, InfluxDB, S3, or the filesystem, queryable via the \emph{same} keys.
+  \end{description}
+
+  \vspace{0.3em}
+  \begin{center}{\small One protocol for all three --- not three systems bolted together.}\end{center}
+\end{frame}
+
+% ============ NETWORK ROLES & TOPOLOGY (lifted ~as-is from the full deck) ===
+\begin{frame}{Network Roles \& Topology}
+  \begin{columns}[T]
+    \begin{column}{0.45\textwidth}
+      \textbf{Three node roles:}
+      \begin{description}
+        \item[Router] \texttt{zenohd} daemon. Brokers traffic, bridges networks, hosts plugins and storage backends.
+        \item[Peer] Full-featured node. Discovers other peers, can relay data in a mesh.
+        \item[Client] Lightweight endpoint. Connects to a router or peer --- no relay capability.
+      \end{description}
+    \end{column}
+    \begin{column}{0.55\textwidth}
+      \begin{center}
+        \begin{tikzpicture}[scale=0.85,
+          node/.style={draw, circle, minimum size=0.9cm, font=\scriptsize, align=center},
+          link/.style={<->, thick, >=stealth},
+          mesh/.style={<->, thick, >=stealth, dashed, m3LightPrimary!60}
+        ]
+          \node[node, fill=m3LightPrimary!25] (r1) at (0,2.2)    {R};
+          \node[node, fill=m3LightPrimary!25] (r2) at (2.8,2.2)  {R};
+          \node[node, fill=m3LightPrimary!10] (p1) at (-1,0.5)   {P};
+          \node[node, fill=m3LightPrimary!10] (p2) at (1.4,0.5)  {P};
+          \node[node, fill=m3LightPrimary!10] (p3) at (3.8,0.5)  {P};
+          \node[node, fill=gray!15]      (c1) at (0,-1)     {C};
+          \node[node, fill=gray!15]      (c2) at (2.8,-1)   {C};
+
+          \draw[link] (r1) -- (r2);
+          \draw[link] (p1) -- (r1);
+          \draw[link] (p2) -- (r1);
+          \draw[link] (p3) -- (r2);
+          \draw[mesh] (p1) -- (p2);
+          \draw[link] (c1) -- (p1);
+          \draw[link] (c2) -- (r2);
+
+          \node[font=\tiny, right] at (3.8,2.2) {R = Router};
+          \node[font=\tiny, right] at (3.8,1.7) {P = Peer};
+          \node[font=\tiny, right] at (3.8,1.2) {C = Client};
+        \end{tikzpicture}
+      \end{center}
+
+      \vspace{0.3em}
+      {\scriptsize Modes mix freely: peers mesh locally, clients connect to routers for WAN, routers bridge networks --- \texttt{localhost} = LAN = WAN, \textbf{one API}.}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% ============ DATA MODEL — KEY EXPRESSIONS (lifted ~as-is from the full deck) =
+\begin{frame}{The Data Model --- Key Expressions}
+  All data is addressed by \textbf{key expressions} --- hierarchical, slash-separated paths with wildcard matching. These are the actual keys of today's demo robot:
+
+  \vspace{0.5em}
+  \begin{center}
+    \ttfamily\small
+    \begin{tabular}{lll}
+      \textrm{\textbf{Pattern}} & \textrm{\textbf{Example}} & \textrm{\textbf{Matches}} \\
+      \midrule
+      Exact      & \texttt{px100/cmd/pose}  & that key only \\
+      Single \texttt{*}  & \texttt{px100/cmd/*}     & \texttt{pose}, \texttt{jog}, \ldots \\
+      Glob \texttt{**}   & \texttt{px100/**}        & entire subtree \\
+    \end{tabular}
+  \end{center}
+
+  \vspace{1em}
+  \begin{itemize}
+    \item Same key space for pub/sub, queries, and storage
+    \item A subscriber on \texttt{px100/**} receives publishes, query replies, \textit{and} storage updates
+    \item Interest-based routing --- data only flows toward declared subscribers (no flooding)
+    \item Key expressions can be \textit{declared} on a session for wire-level optimization (integer ID instead of string)
+  \end{itemize}
+\end{frame}
+
+% ============== SECTION DIVIDER 3: ZENOH AND ROBOTICS ===============
+\section{Zenoh and Robotics}
+\bluecornsection{Zenoh and Robotics}{\texttt{rmw\_zenoh} --- the robot's middleware \emph{is} Zenoh}
+
+% ================== ZENOH IS THE ROBOT'S MIDDLEWARE ==============
+\begin{frame}{Zenoh Is the Robot's Middleware}
+  A robot runs \textbf{ROS\,2} --- a graph of nodes (drivers, planners, controllers). ROS\,2 ships \textbf{no wire of its own}; it delegates transport to a \textbf{pluggable middleware} (the \texttt{RMW}). Historically DDS --- and since 2023, \textbf{Zenoh}.
+
+  \vspace{0.4em}
+  \begin{itemize}
+    \item \textbf{Official:} OSRF selected Zenoh as the alternative ROS\,2 middleware; \texttt{rmw\_zenoh} ships from \textbf{Jazzy (2024)} and is \textbf{Tier-1 since Kilted (2025)} --- co-developed by Intrinsic/Google and ZettaScale
+    \item \textbf{So the robot \emph{is} a Zenoh network:} every node already publishes and subscribes over Zenoh; a router runs alongside (our robot: \texttt{:7447}, published to the LAN)
+  \end{itemize}
+
+  \vspace{0.5em}
+  \textbf{Every node on the same wire.} What that unlocks for the \emph{UI} is the payoff ahead.
+\end{frame}
+
+% ============= TOPOLOGY: HOW rmw_zenoh PROVIDES ZENOH ===========
+% Inserted after "Zenoh Is the Robot's Middleware" (Hugo, 2026-06-13). Topology
+% SOURCED from the official ros2/rmw_zenoh design doc (docs/design.md): each ROS 2
+% node = a Zenoh session (peer); one router (rmw_zenohd, :7447) does DISCOVERY only
+% (liveliness tokens + gossip scouting; UDP multicast disabled); DATA flows
+% peer-to-peer, the router is explicitly NOT a message broker.
+\begin{frame}{How \texttt{rmw\_zenoh} Provides Zenoh in the Robot}
+  Each ROS\,2 node \emph{is} a \textbf{Zenoh session}; one \textbf{router} (\texttt{rmw\_zenohd}, \texttt{:7447}) handles \textbf{discovery only} --- then data flows \textbf{peer-to-peer}.
+
+  \vspace{0.5em}
+  \begin{center}
+    \begin{tikzpicture}[
+      router/.style={draw, rounded corners, minimum width=3.4cm, minimum height=0.72cm, font=\scriptsize, align=center, fill=m3LightPrimary!20},
+      sess/.style={draw, rounded corners, minimum width=2.25cm, minimum height=0.78cm, font=\scriptsize, align=center, fill=m3LightSecondaryContainer},
+      disc/.style={<->, semithick, m3LightOutline, dotted},
+      data/.style={->, very thick, >=stealth, m3LightPrimary},
+      lab/.style={font=\tiny, text=m3LightOnSurfaceVariant}
+    ]
+      \node[router] (rt) at (0,1.55) {\textbf{Zenoh router}\\\tiny \texttt{rmw\_zenohd} $\cdot$ \texttt{:7447}};
+      \node[sess] (s1) at (-3.5,0) {\textbf{ROS\,2 node}\\\tiny Zenoh session $\cdot$ pub};
+      \node[sess] (s2) at (0,0)    {\textbf{ROS\,2 node}\\\tiny Zenoh session $\cdot$ sub};
+      \node[sess] (s3) at (3.5,0)  {\textbf{ROS\,2 node}\\\tiny Zenoh session $\cdot$ sub};
+      \draw[disc] (rt) -- (s1);
+      \draw[disc] (rt) -- node[lab,right=1pt]{discovery} (s2);
+      \draw[disc] (rt) -- (s3);
+      \draw[data] (s1) -- (s2);
+      \draw[data] (s1) to[bend right=26] node[lab,below]{\textbf{peer-to-peer data}} (s3);
+    \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.3em}
+  \begin{itemize}\small
+    \item \textbf{Discovery} = Zenoh \textbf{liveliness tokens} + the router's \textbf{gossip scouting} --- \emph{no UDP multicast} (the DDS pain point, designed out)
+    \item \textbf{The router is never in the data path} --- once peers find each other, messages go \textbf{node-to-node} on keys \texttt{<domain>/<topic>/<type>/<hash>}
+  \end{itemize}
+
+  \vspace{0.15em}
+  {\scriptsize\itshape Source: official \texttt{ros2/rmw\_zenoh} design doc (\texttt{docs/design.md}).}
+\end{frame}
+
+% =============== THE CLINCHER (relocated: payoff after grounding) =======
+% Moved here (Hugo, 2026-06-13): AFTER the base-knowledge stack (ROS / Zenoh /
+% rmw_zenoh / topology), BEFORE the binding/app/demo. The payoff of the grounding ---
+% the locked thesis claim + the "newly possible" hook. Lean on purpose: slide 8 already
+% explained the rmw_zenoh mechanism, so this is the "so-what", not the "how".
+% The DDS-bridge Q&A speaker note rides here (this slide mentions the old bridge).
+\begin{frame}{What It Unlocks}
+  You've seen it: with \texttt{rmw\_zenoh}, the robot's \emph{own} wire is Zenoh, discovered without multicast. So here is what it \textbf{means} ---
+
+  \vspace{0.8em}
+  \begin{center}
+    {\Large \textbf{Zenoh lets the app interact with the robot --- through ROS --- as a peer}, eliminating the broker/gateway and the client/server tier every other approach forces in.}\\[0.9em]
+    {\large\color{m3LightPrimary}\textbf{Newly possible.} Before \texttt{rmw\_zenoh}, a UI could only reach the robot through a bridge --- now it joins the fabric itself.}
+  \end{center}
+\end{frame}
+
+\note{%
+  \textbf{Why DDS forced a bridge} (expected question):
+
+  \textbf{1. No DDS client for UI languages.} DDS is a C/C++ middleware (Fast DDS, Cyclone, Connext). There is none for \textbf{Dart/Flutter}, and it cannot run \textbf{in a browser} (no raw UDP) --- so a web or mobile UI cannot be a DDS participant at all.
+
+  \textbf{2. Discovery is LAN-only.} DDS discovers peers over \textbf{UDP multicast}: won't cross subnets, unreliable on WiFi, blocked on corporate networks. A phone can't join the robot's DDS domain.
+
+  \textbf{If pushed:} ``rviz/rqt are native, not bridges'' --- true, but those are desktop C++/Python apps running \emph{as ROS nodes on the robot's LAN}, not the mobile cross-platform operator app this talk is about. ``DDS can use TCP / a Discovery Server'' --- yes, with extra config, but still \emph{no DDS for Dart or the browser}; Zenoh gives a client in those languages over TCP/QUIC/WebSocket, no multicast.
+
+  \textbf{One-liner:} DDS has no client for Dart or the browser and discovers over multicast that won't cross WiFi --- so a mobile/web UI had to sit behind a bridge translating DDS to WebSockets; \texttt{rmw\_zenoh} removes both problems at once.
+}
+
+% ============= SECTION DIVIDER 4: THE BINDING AND THE APP ===========
+\section{The Binding and the App}
+\bluecornsection{The Binding and the App}{the missing Dart binding, filled --- and the app it builds}
+
+% ============ WHICH LANGUAGE FOR THE UI (sets up the Dart binding) =======
+% Inserted after the clincher (Hugo, 2026-06-13): the UI-language landscape that
+% motivates the Dart binding --- ROS native = C++/Python (rclcpp/rclpy) build Qt UIs
+% as nodes; Zenoh opens its other-language bindings (each w/ UI toolkits); this talk
+% = Flutter, which had NO Dart Zenoh binding -> Hugo wrote package:zenoh.
+\begin{frame}{Which Language Builds the UI?}
+  ROS\,2 officially supports two client languages --- \textbf{C++} (\texttt{rclcpp}) and \textbf{Python} (\texttt{rclpy}). A UI can be a node directly: \textbf{rqt}, the standard ROS GUI, is a \textbf{Qt\,+\,Python} node; Qt\,/\,C++ works the same way.
+
+  \vspace{0.4em}
+  And \textbf{Zenoh widens the door.} It already has bindings for \textbf{Rust, C++, Python, Kotlin\,/\,Java, TypeScript} --- each with its \emph{own} UI toolkits. With \texttt{rmw\_zenoh}, any of them could now join the robot's fabric (Jetpack Compose on Android, a TypeScript web app, \ldots).
+
+  \vspace{0.5em}
+  \textbf{This talk is \textsc{Flutter}} --- one codebase across mobile, desktop, and web, native widgets. But \textbf{Dart was the one language with \emph{no} Zenoh binding.} So I wrote it.
+\end{frame}
+
+% ===================== THE MISSING BINDING =======================
+\begin{frame}{The Missing Binding --- Filled}
+  \textbf{Dart} was the gap --- so Flutter UIs, Dart services, and CLIs all sat \textbf{behind bridges}.
+
+  \vspace{0.5em}
+  \textbf{Filled:} \texttt{package:zenoh} --- pure Dart over \texttt{dart:ffi}, wrapping \texttt{zenoh-c}. One binding opens the \textbf{whole Dart ecosystem}:
+  \begin{itemize}
+    \item \textbf{Flutter} --- multi-platform operator UIs (this talk)
+    \item \textbf{Server-side Dart} --- Serverpod, Dart Frog, Shelf
+    \item \textbf{CLI \& tooling} --- our 26 \texttt{z\_*} examples are CLIs
+  \end{itemize}
+
+  \vspace{0.3em}
+  {\small \texttt{package:zenoh} v0.19.0 today: 156 C functions, 571 integration tests, prebuilt for Linux x86\_64 and Android.}
+
+  \vspace{0.3em}
+  {\small\textcolor{m3LightPrimary}{\texttt{github.com/bluecorn/zenoh\_dart}}}
+\end{frame}
+
+% ===================== HELLO, ZENOH --- MINIMAL DART =====================
+% Inserted between "The Missing Binding --- Filled" and "The App, End to End"
+% (Hugo, 2026-06-17): a minimal taste of package:zenoh before the app
+% architecture --- the canonical pub/sub "hello world." API verified against
+% package/example/{z_put,z_sub,example}.dart: Session.open() is synchronous
+% (peer mode by default), put(key, value), declareSubscriber(key).stream of
+% Sample (.keyExpr / .payload). Bare-statement style matches the full deck's
+% "API in a Dozen Lines" (import + main elided for focus on the API calls).
+\begin{frame}[fragile]{Hello, Zenoh}
+  The binding is plain Dart --- declarations are \textbf{synchronous}; data arrives as a \texttt{Stream}. The canonical pub/sub ``hello world,'' two tiny programs sharing one key space:
+
+\begin{lstlisting}[language=Java, title=Publisher]
+final session = Session.open();            // a peer on the fabric
+session.put('demo/greeting', 'Hello, Zenoh!');
+session.close();
+\end{lstlisting}
+
+\vspace{0.35em}
+\begin{lstlisting}[language=Java, title=Subscriber]
+final session = Session.open();
+final sub = session.declareSubscriber('demo/**');
+sub.stream.listen((s) => print('${s.keyExpr}: ${s.payload}'));
+\end{lstlisting}
+
+  \vspace{0.35em}
+  {\small No broker to run, no bridge to cross --- \texttt{put} here, the \texttt{Stream} fires there. Get/queryable, liveliness, and SHM follow the \emph{same} shape.}
+\end{frame}
+
+% ======================= THE APP, END TO END =====================
+\begin{frame}{The App, End to End}
+  \textbf{The canonical way a UI connects to ROS is a \emph{gateway}} --- a translation node between the app and the robot's graph. Our robot, a \textbf{PincherX-100}, runs one --- a thin \texttt{rclcpp} (C++) ROS\,2 node on \texttt{rmw\_zenoh}. Because that middleware \emph{is} Zenoh, every participant --- the app included --- is a \textbf{peer on \emph{one} router:}
+
+  \vspace{0.5em}
+  \begin{center}
+    \begin{tikzpicture}[
+      router/.style={draw, rounded corners, minimum width=2.8cm, minimum height=0.64cm, font=\scriptsize, align=center, fill=m3LightPrimary!20},
+      sess/.style={draw, rounded corners, minimum width=2.0cm, minimum height=0.8cm, font=\scriptsize, align=center, fill=m3LightSecondaryContainer},
+      appn/.style={draw, rounded corners, minimum width=2.0cm, minimum height=0.8cm, font=\scriptsize, align=center, fill=m3LightPrimaryContainer},
+      armn/.style={draw, rounded corners, minimum width=1.85cm, minimum height=0.8cm, font=\scriptsize, align=center, fill=m3LightTertiaryContainer},
+      disc/.style={<->, semithick, m3LightOutline, dotted},
+      data/.style={->, very thick, >=stealth, m3LightPrimary},
+      serial/.style={->, thick, >=stealth, m3LightOnSurfaceVariant},
+      lab/.style={font=\tiny, text=m3LightOnSurfaceVariant}
+    ]
+      \node[router] (rt) at (-1.0,1.7) {\textbf{Zenoh router}\\\tiny \texttt{:7447}};
+      \node[appn] (app) at (-3.8,0) {\textbf{Flutter app}\\\tiny Zenoh client};
+      \node[sess] (gw)  at (-1.0,0) {\textbf{gateway}\\\tiny ROS\,2 node};
+      \node[sess] (xs)  at (1.8,0)  {\textbf{xs\_sdk}\\\tiny ROS\,2 node};
+      \node[armn] (arm) at (4.3,0)  {\textbf{PincherX-100}};
+      % discovery (dotted) --- each session to the one router
+      \draw[disc] (rt) -- (app);
+      \draw[disc] (rt) -- (gw);
+      \draw[disc] (rt) -- (xs);
+      % data (solid, peer-to-peer): app -> gateway -> xs_sdk -> arm
+      \draw[data] (app) -- node[lab,above]{\texttt{JSON}} (gw);
+      \draw[data] (gw)  -- node[lab,above]{\texttt{CDR}} (xs);
+      \draw[serial] (xs) -- node[lab,above]{serial} (arm);
+    \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.2em}
+  \begin{center}{\small Each box is a \textbf{Zenoh session} on \emph{one} router (\textbf{dotted} = discovery only). The app speaks \textbf{JSON} to the gateway; the gateway translates to the ROS \textbf{CDR} wire --- \textbf{solid} = peer-to-peer data, the router never in the path. A \textbf{gateway node} still translates here; \textbf{the proof ahead removes even it}.}\end{center}
+
+  {\small\textcolor{m3LightPrimary}{\texttt{github.com/bluecorn/flutter\_zenoh\_gateway}}}
+\end{frame}
+
+% =============== COMMAND & ACK (lifted from the full deck, 2026-06-13) ===========
+% Hugo: shows a BUILT-IN Zenoh mechanism (query/reply = request/reply -> a free ack
+% = robustness) AND peer comms (app<->gateway are peers). Gateway path; the
+% no-gateway contrast is the job of "The Same Router --- No Gateway" (that direct
+% path is a PUT, not query/reply -- so don't redraw THIS picture without the gateway).
+\begin{frame}{Command \& Ack --- a Query, Not a Put}
+  Zenoh ships \textbf{request/reply} as a built-in primitive (\texttt{get} \& a queryable) --- so a command carries its \textbf{own ack}, no second channel. A pose command \emph{is} a query: the app \texttt{get}s \texttt{px100/cmd/pose} with the JSON; the gateway (a \textbf{queryable}) \textbf{always} replies.
+
+  \vspace{0.05em}
+  \begin{center}
+    \begin{tikzpicture}[
+      box/.style={draw, rounded corners, minimum height=0.72cm, font=\scriptsize, align=center},
+      lab/.style={font=\tiny, text=m3LightOnSurfaceVariant, align=center}
+    ]
+      \node[box, fill=m3LightPrimaryContainer,   minimum width=2.1cm] (app) at (0,0)      {\textbf{Flutter app}};
+      \node[box, fill=m3LightSecondaryContainer, minimum width=2.6cm] (gw)  at (5.7,0)    {\textbf{gateway}\\\tiny Zenoh queryable};
+      \node[box, fill=m3LightTertiaryContainer,  minimum width=3.4cm] (arm) at (5.7,-1.2) {\textbf{\texttt{JointGroupCommand}}\\\tiny $\to$ \texttt{xs\_sdk} $\to$ the arm moves};
+      \draw[->, thick, >=stealth, m3LightPrimary] ([yshift=4pt]app.east) -- node[lab,above]{\texttt{get}~~\texttt{\{"pose":"home"\}}} ([yshift=4pt]gw.west);
+      \draw[<-, thick, >=stealth, m3LightOutline] ([yshift=-5pt]app.east) -- node[lab,below]{\texttt{reply}~~\texttt{\{"ok":\ldots\}}} ([yshift=-5pt]gw.west);
+      \draw[->, thick, >=stealth, m3LightTertiary] (gw) -- node[lab,right]{~on \texttt{ok}: publish} (arm);
+    \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.05em}
+  \begin{columns}[T]
+    \begin{column}{0.54\textwidth}
+      \textbf{\small Three outcomes --- the app always learns which:}
+      \begin{itemize}\small
+        \item \textbf{delivered} --- \texttt{\{"ok":true\}}: the arm moves
+        \item \textbf{rejected} --- \texttt{\{"ok":false\}}: bad/unknown pose, no publish
+        \item \textbf{error} --- no reply in 3\,s: gateway unreachable
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      {\small A rejection is a \textbf{valid reply}, never a transport error (always \texttt{reply()}, never \texttt{reply\_err}) --- the app tells \emph{``said no''} from \emph{``didn't answer.''} And the gateway is a \textbf{peer that earns its place}, not a forced broker --- it owns the semantics.}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% ================== THE APP'S ENTIRE ZENOH BOUNDARY ==============
+% Moved up beside Command & Ack (Hugo, 2026-06-13): the query/reply PICTURE and the
+% code that IS that query belong together, so the code follows Command & Ack directly.
+\begin{frame}[fragile]{The App's Entire Zenoh Boundary}
+\begin{lstlisting}[language=Java]
+/// The single `package:zenoh` boundary for the app.
+class ZenohService {
+  Session? _session;
+
+  /// Open a CLIENT session to the robot's router (Session.open is sync).
+  void connect(String endpoint) {
+    final config = Config()
+      ..insertJson5('mode', '"client"')
+      ..insertJson5('connect/endpoints', '["$endpoint"]');
+    _session = Session.open(config: config);
+  }
+
+  /// Send [payload] as a query on [key]; return the reply (ack) bytes.
+  Future<Uint8List> query(String key, Uint8List payload) async {
+    final reply = await _session!
+        .get(key, payload: ZBytes.fromUint8List(payload),
+             timeout: const Duration(seconds: 3))
+        .first;
+    if (!reply.isOk) throw StateError('transport error');
+    return reply.ok.payloadBytes;
+  }
+}
+\end{lstlisting}
+
+  {\small The app's \textbf{complete} zenoh footprint, in \textbf{Dart} --- \texttt{connect} + one \texttt{query}; the reply decodes to a \textbf{delivered / rejected / error} ack.}
+\end{frame}
+
+% =============== TWO WAYS IN (positioning; after Command & Ack + the code) =======
+% Related-work / positioning (Hugo, 2026-06-13): moved OUT of the proof block so the
+% Demo -> We Went Further -> No Gateway proof runs uninterrupted; sits beside "The App,
+% End to End" (the canonical gateway) since both answer "how does the app reach ROS?".
+\begin{frame}{Two Ways In: A Bridge Tier, or a Peer on the Fabric}
+  A Flutter app has two real routes to a ROS robot. \textbf{Both need a robot-side process --- neither is ``no server.'' The difference is where the app sits.}
+
+  \vspace{0.3em}
+  \begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+      \textbf{Flutter + rosbridge}
+      \begin{itemize}\small
+        \item App $\to$ \textbf{WebSocket} $\to$ \texttt{rosbridge\_server} $\to$ the ROS graph
+        \item \textbf{Generic} access to \emph{any} ROS topic / service / action, zero custom server code --- its real strength
+        \item Speaks the rosbridge protocol (JSON; CBOR for subscriptions)
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \textbf{Flutter + Zenoh (ours)}
+      \begin{itemize}\small
+        \item App $\to$ \textbf{Zenoh} $\to$ the \emph{same router the ROS nodes use} (via \texttt{rmw\_zenoh})
+        \item A \textbf{Zenoh client of the robot's own router}, on the same wire as the ROS nodes
+        \item A per-robot contract via our gateway --- custom code, app-decoupled
+      \end{itemize}
+    \end{column}
+  \end{columns}
+
+  \vspace{0.4em}
+  \begin{itemize}\small
+    \item \textbf{Same, not magic:} both run a robot-side node; on an \texttt{rmw\_zenoh} stack \textbf{both even ride Zenoh internally} (\texttt{rosbridge\_server} is RMW-agnostic). The contrast is the \textbf{client leg} --- a WebSocket island vs the same fabric.
+    \item \textbf{The difference that matters:} a bridge client \textbf{asks} a proxy for the ROS graph; a Zenoh client can \textbf{participate} --- read \texttt{@ros2\_lv} liveliness the way \texttt{rmw\_zenoh} itself does. \emph{Different, not better.}
+  \end{itemize}
+\end{frame}
+
+% ===================== SECTION DIVIDER 5: PROOF =====================
+\section{Proof}
+\bluecornsection{Proof}{the UI on the robot's fabric, for real}
+
+% ============================= DEMO ==============================
+\begin{frame}[standout]
+  \centering
+  {\usebeamerfont{title}Demo\par}
+  \vspace{0.5em}
+  {\color{m3DarkPrimary}\rule{0.3\textwidth}{1.2pt}\par}
+  \vspace{0.5em}
+  {\normalsize Mobile device $\rightarrow$ Zenoh $\rightarrow$ gateway $\rightarrow$ arm\par}
+  \vspace{1.0em}
+  {\small\itshape (recording plays here --- watch the endpoint, the connect, and the arm)\par}
+\end{frame}
+
+% ===================== PROOF: WE WENT FURTHER ====================
+\begin{frame}{We Went Further: the UI on the Fabric Directly}
+  Past the gateway demo --- a spike where the Flutter/Dart app \textbf{joins the robot's own \texttt{rmw\_zenoh} wire}, no gateway node. \textbf{Both halves ran on the real PincherX-100.}
+
+  \vspace{0.2em}
+  \begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+      \textbf{Read --- telemetry off the fabric}
+      \begin{itemize}\small
+        \item Subscribes to the robot's own \texttt{joint\_states}; \textbf{decodes the ROS CDR in Dart}
+        \item Computes px100 forward-kinematics $\to$ a live gripper $(x,y,z)$ readout
+        \item \textbf{No gateway in the state path}
+        \item {\scriptsize FK \textbf{validated} vs \texttt{tf2\_echo} on the sim ($<0.5$\,mm); the same math ran on the real arm's telemetry}
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \textbf{Command --- the real arm moved}
+      \begin{itemize}\small
+        \item Publishes \texttt{JointGroupCommand} on the \texttt{rmw\_zenoh} wire (CDR + attachment); \textbf{the physical arm moved} home\,$\leftrightarrow$\,sleep --- \textbf{no gateway, no token to actuate}
+        \item Attachment is \textbf{load-bearing}, minted with the binding's \texttt{ZSerializer} (the \emph{same} \texttt{ze\_serializer\_*} API \texttt{rmw\_zenoh} uses) --- correct \textbf{by construction}
+        \item {\scriptsize Negative control: a no-attachment publish was \textbf{silently dropped}}
+      \end{itemize}
+    \end{column}
+  \end{columns}
+
+  \vspace{0.2em}
+  \begin{center}
+    {\small ``No gateway \textbf{node}'' --- the Zenoh \textbf{router stays in the path} (as for \emph{all} \texttt{rmw\_zenoh} traffic); that is exactly what makes the app a \textbf{first-class Zenoh peer}.}
+  \end{center}
+\end{frame}
+
+% ============ PROOF PICTURE: SAME ROUTER, NO GATEWAY ============
+% Inserted after "We Went Further" (Hugo's stray POC-session request, 2026-06-13):
+% same rmw_zenoh-topology layout as "The App, End to End" / the topology slide, but
+% the GATEWAY IS GONE --- the app is a proto ROS node speaking the rmw_zenoh wire
+% (CDR + attachment) directly to xs_sdk. Pairs visually with the gateway picture.
+\begin{frame}{The Same Router --- No Gateway Node}
+  In the spike, the \textbf{gateway is gone}: the Flutter app speaks the robot's \texttt{rmw\_zenoh} wire \emph{itself} --- a \textbf{proto ROS node} on the same router.
+
+  \vspace{0.4em}
+  \begin{center}
+    \begin{tikzpicture}[
+      router/.style={draw, rounded corners, minimum width=2.8cm, minimum height=0.64cm, font=\scriptsize, align=center, fill=m3LightPrimary!20},
+      sess/.style={draw, rounded corners, minimum width=2.1cm, minimum height=0.84cm, font=\scriptsize, align=center, fill=m3LightSecondaryContainer},
+      appn/.style={draw, rounded corners, minimum width=2.4cm, minimum height=0.84cm, font=\scriptsize, align=center, fill=m3LightPrimaryContainer},
+      armn/.style={draw, rounded corners, minimum width=1.85cm, minimum height=0.84cm, font=\scriptsize, align=center, fill=m3LightTertiaryContainer},
+      disc/.style={<->, semithick, m3LightOutline, dotted},
+      data/.style={->, very thick, >=stealth, m3LightPrimary},
+      serial/.style={->, thick, >=stealth, m3LightOnSurfaceVariant},
+      lab/.style={font=\tiny, text=m3LightOnSurfaceVariant}
+    ]
+      \node[router] (rt) at (-0.95,1.7) {\textbf{Zenoh router}\\\tiny \texttt{:7447}};
+      \node[appn] (app) at (-2.9,0) {\textbf{Flutter app}\\\tiny \textbf{proto ROS node}};
+      \node[sess] (xs)  at (1.0,0)  {\textbf{xs\_sdk}\\\tiny ROS\,2 node};
+      \node[armn] (arm) at (3.55,0) {\textbf{PincherX-100}};
+      \draw[disc] (rt) -- (app);
+      \draw[disc] (rt) -- (xs);
+      \draw[data] (app) -- node[lab,above]{\texttt{CDR + attachment}} (xs);
+      \draw[serial] (xs) -- node[lab,above]{serial} (arm);
+    \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.35em}
+  \begin{center}{\small Same router, same discovery (\textbf{dotted}) --- the app now publishes \textbf{CDR + the mandatory attachment} \emph{directly} to \texttt{xs\_sdk} (\textbf{solid}, peer-to-peer). \textbf{No gateway in the path} --- a \textbf{proto ROS node} actuating the real arm. The \textbf{command's shape changes too}: the gateway's \textbf{query/reply ack} becomes a \textbf{direct put} --- still peers, trading that reply for fire-and-forget + telemetry feedback.}\end{center}
+
+  \vspace{0.25em}
+  {\small\textcolor{m3LightPrimary}{\texttt{github.com/bluecorn/flutter\_zenoh\_direct}}}
+\end{frame}
+
+% ================== SECTION DIVIDER 6: CONCLUSIONS ==================
+\section{Conclusions}
+\bluecornsection{Conclusions}{the pattern, the proof --- and where it leads}
+
+% ============================ CONCLUSION =========================
+\begin{frame}{Conclusion}
+  \begin{center}
+    \textbf{Not a cross-platform UI toolkit --- a pattern:}\\[0.2em]
+    {\large the \textbf{UI as a first-class peer on the device fabric}.}
+  \end{center}
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item \textbf{The problem} --- the UI is the one component that never joins the data fabric; the usual fix is a gateway that costs a server and flattens your QoS
+    \item \textbf{The pattern} --- make the UI a \textbf{first-class Zenoh peer}; with \texttt{rmw\_zenoh}, the robot already speaks it --- no bridge tier in between
+    \item \textbf{The binding} --- \texttt{package:zenoh} 0.19.0 opens the \textbf{whole Dart ecosystem} (Flutter, server-side, CLI) to Zenoh natively
+    \item \textbf{The proof} --- a Flutter app moved a real PincherX-100 over WiFi (gateway path, demoed); a spike then \textbf{read \emph{and} commanded the arm directly} on the same fabric, \textbf{no gateway node}
+  \end{itemize}
+\end{frame}
+
+% ========================= FUTURE DIRECTIONS =====================
+\begin{frame}{Future Directions}
+  The direct path --- a \textbf{proto ROS node} on the robot's fabric --- is the proven foundation the rest grows onto:
+  \begin{itemize}
+    \item \textbf{Graph citizenship} --- announce via \texttt{@ros2\_lv} so \texttt{ros2 node info} / rqt list the app: from a \emph{proto} ROS node to a \textbf{graph-visible} one
+    \item \textbf{The full app} --- jog joints, subscribe to live state, record \& play back poses (the teach-pendant dream)
+    \item \textbf{Beyond the arm} --- the same pattern spans cloud services, IoT sensors, and \texttt{zenoh-pico} MCUs; \emph{any} language with Zenoh bindings can be a proto ROS node
+  \end{itemize}
+
+  \vspace{0.2em}
+  {\small \alert{Honest scope:} \textbf{human-rate poses are proven}; high-rate jog/teach (needs \texttt{put} congestion control), graph citizenship, and general non-px100 messages are still research.}
+
+  \vspace{0.4em}
+  \begin{center}
+    {\small \texttt{package:zenoh} is \textbf{open source} (Apache-2.0), built on \texttt{zenoh-c} --- and the whole stack develops with \textbf{zero hardware} (Docker + sim). Use it, file issues, contribute.}
+  \end{center}
+\end{frame}
+
+% ============================ THANK YOU ==========================
+\begin{frame}[standout]
+  \centering
+  \bluecornlogo[1.6cm]\par
+  \vspace{0.8em}
+  {\usebeamerfont{title}Thank You\par}
+  \vspace{0.5em}
+  {\color{m3DarkPrimary}\rule{0.3\textwidth}{1.2pt}\par}
+  \vspace{1.0em}
+  {\small\texttt{github.com/bluecorn} \par}
+\end{frame}
+
+\end{document}
