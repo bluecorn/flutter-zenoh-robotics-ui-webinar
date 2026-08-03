@@ -18,7 +18,7 @@ The talk is backed by three open-source repositories:
 
 | Repo | What it is |
 |------|------------|
-| [zenoh_dart](https://github.com/bluecorn/zenoh_dart) | `package:zenoh` — the pure-Dart Zenoh binding (over `dart:ffi`, wrapping `zenoh-c`) |
+| [zenoh_dart](https://github.com/bluecorn/zenoh_dart) | [`package:zenoh_dart`](https://pub.dev/packages/zenoh_dart) — the pure-Dart Zenoh binding (over `dart:ffi`, wrapping `zenoh-c`) |
 | [flutter_zenoh_gateway](https://github.com/bluecorn/flutter_zenoh_gateway) | App 1 — the gateway-path operator app (the live demo) |
 | [flutter_zenoh_direct](https://github.com/bluecorn/flutter_zenoh_direct) | App 2 — the gateway-less direct spike ("We Went Further") |
 
